@@ -18,4 +18,5 @@ Thumbs.db
 
 # Task/workflow reference files (not part of the app)
 TASK_PROMPT.md
+TASK_PROMPT_OPTIMIZE.md
 WORKFLOW_*.md
