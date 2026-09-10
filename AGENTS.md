@@ -9,6 +9,14 @@ evidence exists, the agent must say so instead of guessing.
 Target user: founders, sales engineers, and compliance leads at small B2B
 SaaS companies who lose 20-40 hours per questionnaire.
 
+## Front-loading rule (applies to README, text description, and video)
+The first sentence anyone reads or hears must contain both: (1) that this
+is two independent agents, not one, and (2) the real measured number
+(verifier catch rate or accuracy). Do not build up to it — lead with it,
+the way every winning entry in this category does. Example shape: "Two
+independent agents — one drafts, one audits — catch X% of unsupported
+answers before a human ever sees them."
+
 ## Non-negotiable architecture contract
 The pipeline has five stages and they must remain separable, testable units,
 not one long prompt:

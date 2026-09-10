@@ -1,0 +1,2 @@
+## 3. Data Handling Procedures
+All employees must handle data according to its classification level. Restricted data must only be accessed on a strict need-to-know basis and must be encrypted both in transit and at rest. Data loss prevention (DLP) tools are deployed across all company endpoints and network perimeters to monitor and prevent unauthorized exfiltration of Confidential and Restricted d

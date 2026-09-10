@@ -1,0 +1,102 @@
+[
+  {
+    "id": "q1",
+    "text": "Does the organization classify data based on sensitivity levels?",
+    "expected_status": "green"
+  },
+  {
+    "id": "q2",
+    "text": "What are the data retention requirements for financial data?",
+    "expected_status": "green"
+  },
+  {
+    "id": "q3",
+    "text": "Is multi-factor authentication required for all users?",
+    "expected_status": "green"
+  },
+  {
+    "id": "q4",
+    "text": "How quickly must access be revoked when an employee is terminated?",
+    "expected_status": "green"
+  },
+  {
+    "id": "q5",
+    "text": "What is the organization's Recovery Time Objective (RTO)?",
+    "expected_status": "green"
+  },
+  {
+    "id": "q6",
+    "text": "Is data encrypted at rest using AES-256?",
+    "expected_status": "green"
+  },
+  {
+    "id": "q7",
+    "text": "Are background checks performed on all employees before hire?",
+    "expected_status": "green"
+  },
+  {
+    "id": "q8",
+    "text": "Does the organization enforce a clean desk policy?",
+    "expected_status": "green"
+  },
+  {
+    "id": "q9",
+    "text": "Are code reviews required before deploying to production?",
+    "expected_status": "green"
+  },
+  {
+    "id": "q10",
+    "text": "Are audit logs maintained for all administrative actions?",
+    "expected_status": "green"
+  },
+  {
+    "id": "q11",
+    "text": "Does the organization perform vulnerability scanning on all systems?",
+    "expected_status": "red"
+  },
+  {
+    "id": "q12",
+    "text": "Are there policies governing the portability of data between cloud providers?",
+    "expected_status": "red"
+  },
+  {
+    "id": "q13",
+    "text": "Are penetration tests conducted annually on external facing applications?",
+    "expected_status": "red"
+  },
+  {
+    "id": "q14",
+    "text": "Does the company mandate data obfuscation or masking in non-production environments?",
+    "expected_status": "red"
+  },
+  {
+    "id": "q15",
+    "text": "Does the organization maintain physical security controls at its data centers?",
+    "expected_status": "red"
+  },
+  {
+    "id": "q16",
+    "text": "Are endpoint devices managed with a unified endpoint management solution?",
+    "expected_status": "red"
+  },
+  {
+    "id": "q17",
+    "text": "Does the organization use automated source code analysis (SAST) tools?",
+    "expected_status": "red"
+  },
+  {
+    "id": "q18",
+    "text": "Is there a formal supply chain risk management program to evaluate third-party vendors?",
+    "expected_status": "red"
+  },
+  {
+    "id": "q19",
+    "text": "Does the company consume threat intelligence feeds from external sources?",
+    "expected_status": "red"
+  },
+  {
+    "id": "q20",
+    "text": "Are physical access logs to the datacenter reviewed quarterly?",
+    "expected_status": "red"
+  }
+]
