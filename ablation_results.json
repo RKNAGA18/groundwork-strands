@@ -1,0 +1,8 @@
+{
+  "mode_a_accuracy": 0.5,
+  "mode_b_accuracy": 0.65,
+  "mode_c_accuracy": 0.45,
+  "catch_rate": 0.0,
+  "elapsed_time": 187.27616381645203,
+  "llm": "claude-3-haiku-20240307-v1:0"
+}

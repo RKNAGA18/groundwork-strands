@@ -1,92 +1,67 @@
 import os
-import json
 from typing import List, Dict, Any
-import httpx
-
-# We will rely on standard timeout behavior and try-except handling instead of monkey patching.
-# The OpenAI SDK defaults to a generous timeout anyway.
-# Explicit environment variables for Strands OpenAIModel integration
-os.environ["OPENAI_API_KEY"] = os.environ.get("GROQ_API_KEY", "")
-os.environ["OPENAI_BASE_URL"] = "https://api.groq.com/openai/v1"
-from strands import Agent, tool
+from strands import Agent
 from strands.models.openai import OpenAIModel
 from app.storage.vector_store import VectorStoreManager
 
 _VSM = None
-_KB_ID = "smoke_test_kb"
+_KB_ID = "eval_kb"
 
-def set_vector_store(vsm: VectorStoreManager, kb_id: str):
+def set_vector_store(vsm: VectorStoreManager, kb_id: str = "eval_kb"):
     global _VSM, _KB_ID
     _VSM = vsm
     _KB_ID = kb_id
 
-@tool
-def retrieve_evidence(question_text: str) -> list[dict]:
-    """Calls the local VectorStoreManager (eval_kb) and returns top-3 chunks."""
+def retrieve_evidence(question_text: str) -> List[Dict[str, Any]]:
     global _VSM, _KB_ID
-    if _VSM is None:
-        return []
-    chunks = _VSM.retrieve(_KB_ID, question_text, top_k=3, threshold=0.75)
-    return [c.model_dump() if hasattr(c, 'model_dump') else (c.dict() if hasattr(c, 'dict') else c) for c in chunks]
+    if _VSM is None: return []
+    chunks = _VSM.retrieve(_KB_ID, question_text, top_k=3, threshold=0.05)
+    return [c.to_dict() for c in chunks]
 
-@tool
-def draft_answer(question_text: str, evidence: list[dict]) -> dict:
-    """Drafts a concise compliance answer based on evidence."""
-    if not evidence:
-        return {"answer_text": "INSUFFICIENT_EVIDENCE", "cited_chunk_ids": []}
-    return {"answer_text": f"Draft answer generated from evidence.", "cited_chunk_ids": [e.get('chunk_id') for e in evidence]}
-
-@tool
-def check_claim_against_sources(draft_text: str, evidence: list[dict]) -> dict:
-    """Audits the draft against retrieved chunks. Returns {'status': 'green'} if supported, else {'status': 'red'}."""
-    if not evidence or "INSUFFICIENT_EVIDENCE" in draft_text:
-        return {"status": "red"}
-    return {"status": "green"}
-
-# 1. Model Configuration via Groq
 groq_model = OpenAIModel(
-    model_id="qwen/qwen3.6-27b",
+    client_args={
+        "api_key": os.environ.get("GROQ_API_KEY", ""),
+        "base_url": "https://api.groq.com/openai/v1"
+    },
+    model_id="llama-3.1-8b-instant",
     params={"temperature": 0.0, "max_tokens": 500}
 )
 
-# 3. Agents
 DrafterAgent = Agent(
     model=groq_model,
-    system_prompt="You orchestrate parsing, retrieval, and grounded drafting. Never answer from your own knowledge.",
-    tools=[retrieve_evidence, draft_answer]
+    system_prompt="You are Groundwork's Drafter Agent. Based ONLY on the provided evidence, draft a brief answer. If evidence is empty, state 'Not addressed in policy'."
 )
 
 VerifierAgent = Agent(
     model=groq_model,
-    system_prompt="You audit drafts against their cited sources only. Return {'status': 'green'} if supported, else {'status': 'red'}.",
-    tools=[check_claim_against_sources]
+    system_prompt="You are an enterprise compliance auditor. Review the Question, the Draft, and the Evidence. If the draft is fully supported by the evidence, output 'STATUS: GREEN' followed by a 1-sentence reason. If it is unsupported, hallucinates, or evidence is missing, output 'STATUS: RED' followed by a 1-sentence reason."
 )
 
-def process_question(question: str) -> dict:
-    # 4. Fail-Safe Handling
+def run_pipeline(question: str) -> Dict[str, Any]:
     try:
-        # Fallback to __call__ if invoke doesn't exist
-        invoke_fn_drafter = getattr(DrafterAgent, "invoke", DrafterAgent.__call__)
-        invoke_fn_verifier = getattr(VerifierAgent, "invoke", VerifierAgent.__call__)
+        evidence = retrieve_evidence(question)
         
-        draft_result = invoke_fn_drafter(f"Question: {question}")
+        # LIVE API INVOCATION 1: Drafter
+        draft_prompt = f"Question: {question}\nEvidence: {evidence}"
+        draft_result = DrafterAgent.invoke(draft_prompt)
         draft_text = str(draft_result)
         
-        verify_result = invoke_fn_verifier(f"Question: {question}\nDraft: {draft_text}")
+        # LIVE API INVOCATION 2: Verifier
+        verify_prompt = f"Question: {question}\nDraft: {draft_text}\nEvidence: {evidence}"
+        verify_result = VerifierAgent.invoke(verify_prompt)
         verify_text = str(verify_result)
         
-        is_supported = "green" in verify_text.lower()
+        is_supported = "STATUS: GREEN" in verify_text.upper()
         status = "green" if is_supported else "red"
         
+        # Clean up the output string for the UI
+        clean_reason = verify_text.replace("STATUS: GREEN", "").replace("STATUS: RED", "").replace("Status: GREEN", "").replace("Status: RED", "").replace("\n", " ").strip()
+        
         return {
-            "question": question,
             "status": status,
-            "reason": verify_text
+            "top_source": evidence[0]["doc_name"] if evidence else "None",
+            "top_similarity": evidence[0]["similarity"] if evidence else 0.0,
+            "reason": clean_reason
         }
     except Exception as e:
-        # Fail-Safe Handling for network timeout or connection error
-        return {
-            "question": question,
-            "status": "red",
-            "reason": f"Inference timeout / connection error - flagged for manual audit (Exception: {repr(e)})"
-        }
+        return {"status": "red", "reason": f"Pipeline error: {str(e)}", "top_source": "None", "top_similarity": 0.0}
