@@ -30,8 +30,12 @@ from app.pipeline.verify import verify_answer
 from app.llm.adapter import LLMAdapter
 from app.storage.vector_store import VectorStoreManager
 from app.storage.run_store import RunStore
-from app.agents.drafter import configure as configure_drafter
-from app.agents.verifier import configure as configure_verifier
+try:
+    from app.agents.drafter import configure as configure_drafter
+    from app.agents.verifier import configure as configure_verifier
+    _strands_available = True
+except ImportError:
+    _strands_available = False
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +60,12 @@ def _process_question(
     run_store: RunStore,
     llm: LLMAdapter,
 ) -> dict:
-    """Process a single question through retrieve → draft → verify.
-
-    Graceful degradation: any exception produces a red/unsupported
-    ReviewedAnswer so the overall batch never crashes on one bad row.
+    """
+    Process a single question using actual Strands Agent invocation.
+    
+    This function acts as the safety net for each row in the batch. By running
+    the Drafter and Verifier agents inside a try/except block, we ensure that
+    one malformed question or API timeout doesn't crash the entire 200-question batch.
     """
     question = Question(**q_dict)
     logger.info(
@@ -68,41 +74,69 @@ def _process_question(
     )
 
     try:
-        # --- Stage 2: Retrieve ---
-        evidence = retrieve_evidence(question, kb_id, vector_store)
-        logger.info(
-            "Question '%s': retrieved %d evidence chunks",
-            question.id, len(evidence),
-        )
+        from app.agents.drafter import build_drafter_agent
+        from app.agents.verifier import build_verifier_agent
+        import json
+        
+        # Instantiate our two independent agents
+        drafter = build_drafter_agent()
+        verifier = build_verifier_agent()
+        
+        if drafter is None or verifier is None:
+            raise RuntimeError("Strands agents not available. Ensure strands-agents is installed.")
 
-        # --- Stage 3: Draft ---
-        draft = draft_answer(question, evidence, llm)
-        logger.info(
-            "Question '%s': draft generated (len=%d, cited=%d)",
-            question.id, len(draft.answer_text), len(draft.cited_chunk_ids),
+        # ==========================================
+        # STAGE 1: DRAFTING
+        # ==========================================
+        logger.info("Question '%s': Invoking DrafterAgent", question.id)
+        draft_result = drafter(
+            f"Answer this question using retrieve_evidence and draft_answer. Knowledge base ID: {kb_id}. Question: {question.text}"
         )
+        logger.info("Question '%s': DrafterAgent completed", question.id)
 
-        # --- Stage 4: Verify ---
-        verification = verify_answer(draft, evidence, llm)
-        logger.info(
-            "Question '%s': verdict=%s, status=%s",
-            question.id, verification.verdict, verification.status,
+        # ==========================================
+        # STAGE 2: VERIFICATION
+        # ==========================================
+        # Notice we pass the Draft output directly to the Verifier. The Verifier
+        # has a totally separate context and system prompt—it acts as an auditor.
+        logger.info("Question '%s': Invoking VerifierAgent", question.id)
+        verification_result = verifier(
+            f"Audit this draft against its evidence: {draft_result}"
         )
+        logger.info("Question '%s': VerifierAgent completed", question.id)
+        
+        # Extract the Red/Yellow/Green status from the auditor's result.
+        # Since it might be JSON embedded in text, we parse it safely.
+        status = "yellow"  # fallback status if we aren't sure
+        verdict_text = str(verification_result)
+        
+        try:
+            # Look for a JSON block in the verdict text
+            if "{" in verdict_text and "}" in verdict_text:
+                json_str = verdict_text[verdict_text.find("{"):verdict_text.rfind("}")+1]
+                v_data = json.loads(json_str)
+                status = v_data.get("status", "yellow")
+        except Exception:
+            pass # We'll just stick with the 'yellow' fallback for safety
 
-        # --- Build ReviewedAnswer ---
+        # Assemble the final answer for the user review dashboard
         reviewed = ReviewedAnswer(
             question_id=question.id,
             question_text=question.text,
-            final_text=draft.answer_text,
+            final_text=str(draft_result),
             human_approved=False,
-            status=verification.status,
-            cited_chunk_ids=draft.cited_chunk_ids,
-            evidence=[e.model_dump() for e in evidence],
-            notes=verification.notes,
+            status=status,
+            cited_chunk_ids=[],
+            evidence=[],
+            notes=str(verification_result),
         )
 
     except Exception as exc:
-        # ---- Graceful degradation: never crash on a single row ----
+        # ==========================================
+        # GRACEFUL DEGRADATION
+        # ==========================================
+        # If Bedrock goes down, or the question is completely garbled, we catch it here.
+        # We flag it as 'red' (unsupported) so a human will review it, rather than throwing an error page.
         logger.error(
             "%s✖  Question '%s' FAILED — degrading to red: %s%s",
             _RED, question.id, exc, _RESET,
@@ -118,7 +152,7 @@ def _process_question(
             notes=f"Pipeline error (graceful degradation): {exc}",
         )
 
-    # Update progress (best-effort)
+    # Update progress in the run store (best-effort) so the frontend UI can show a progress bar
     if run_store is not None:
         try:
             current = run_store.get_status(run_id)
@@ -130,11 +164,6 @@ def _process_question(
     return reviewed.model_dump()
 
 
-# ---------------------------------------------------------------------------
-# Public entry point (same signature as the old LangGraph version)
-# ---------------------------------------------------------------------------
-
-
 def run_pipeline(
     questions: list[dict],
     kb_id: str,
@@ -142,29 +171,17 @@ def run_pipeline(
     vector_store: VectorStoreManager,
     run_store: RunStore,
 ) -> list[dict]:
-    """Run the full pipeline on a batch of questions.
-
-    This is the main entry point called by the API route. It replaces
-    the previous LangGraph StateGraph with a plain ThreadPoolExecutor.
-
-    Args:
-        questions: List of question dicts (matching Question schema).
-        kb_id: The knowledge base ID to search against.
-        run_id: The run ID for progress tracking.
-        vector_store: The vector store manager instance.
-        run_store: The run store instance for progress updates.
-
-    Returns:
-        A list of ReviewedAnswer dicts.
-    """
+    """Run the full pipeline on a batch of questions using Strands Agents."""
     llm = LLMAdapter()
 
     # Configure Strands agent modules with runtime dependencies
-    configure_drafter(vector_store, llm)
-    configure_verifier(llm)
+    if _strands_available:
+        configure_drafter(vector_store, llm)
+        configure_verifier(llm)
 
-    run_store.set_status(run_id, "processing")
-    run_store.update_progress(run_id, 0)
+    if run_store is not None:
+        run_store.set_status(run_id, "processing")
+        run_store.update_progress(run_id, 0)
 
     logger.info(
         "%s%s🚀  Starting pipeline for run %s: %d questions against KB %s  "
@@ -186,10 +203,11 @@ def run_pipeline(
             }
 
             for future in as_completed(futures):
-                result = future.result()  # exceptions already caught inside
+                result = future.result()
                 results.append(result)
 
-        run_store.set_results(run_id, results)
+        if run_store is not None:
+            run_store.set_results(run_id, results)
 
         logger.info(
             "%s%s✅  Pipeline completed for run %s: %d results%s",
@@ -203,5 +221,6 @@ def run_pipeline(
             "%s❌  Pipeline failed for run %s: %s%s",
             _RED, run_id, str(e), _RESET,
         )
-        run_store.set_status(run_id, "failed")
+        if run_store is not None:
+            run_store.set_status(run_id, "failed")
         raise

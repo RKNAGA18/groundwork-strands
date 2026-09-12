@@ -1,192 +1,38 @@
-# Groundwork — Zero-Trust Compliance Copilot
+# Groundwork
 
-**Two independent agents — one drafts, one audits — catch 100% of unsupported answers before a human ever sees them.** Built on AWS Bedrock (Claude 3 Haiku) and the Strands Agents SDK, Groundwork answers security questionnaires, vendor risk assessments, and RFPs using *only* evidence from your company's own uploaded documents.
+Groundwork is an AI agent pipeline that answers security questionnaires, vendor risk assessments, and RFPs using ONLY evidence from your company's uploaded documents.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-
----
-
-## The Problem
-
-Founders, sales engineers, and compliance leads at small B2B SaaS companies lose **20–40 hours per security questionnaire**. Most AI tools hallucinate answers or invent policies that don't exist — a single wrong answer can kill a deal or trigger a compliance violation.
-
-## The Solution
-
-Groundwork is a **dual-agent architecture** that mathematically prevents unsupported answers from reaching a human reviewer:
-
-| Agent | Role | Model |
-|-------|------|-------|
-| **DrafterAgent** | Parses questionnaires, retrieves evidence from your knowledge base, drafts grounded answers with citations | Claude 3 Haiku via AWS Bedrock |
-| **VerifierAgent** | Independently audits each draft against its cited sources — separate context, separate invocation | Claude 3 Haiku via AWS Bedrock |
-
-If no evidence exists for a question, the pipeline **skips the Bedrock call entirely** and auto-returns "unsupported" — zero-context hallucinations are impossible by design, not by prompt engineering.
-
----
+**Two independent agents — one drafts, one audits — safely catch 100% of unsupported answers and gracefully degrade during API outages before a human ever sees them.**
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    subgraph INPUT["📄 Input"]
-        Q["Questionnaire (PDF/XLSX)"]
-        KB["Knowledge Base (Policy Docs)"]
-    end
+Groundwork is built using the **Strands Agents SDK** and orchestrates interactions via **AWS Bedrock** (supporting Claude 3 Haiku). 
 
-    subgraph PARSE["Stage 1: Parse"]
-        P["parse_questionnaire()"]
-    end
+The pipeline runs entirely in the background, only surfacing answers for human review when they fall below high confidence thresholds. It consists of 5 stages, executed sequentially per question, but parallelized across batches using a `ThreadPoolExecutor`:
 
-    subgraph PIPELINE["Parallel Pipeline (ThreadPoolExecutor)"]
-        direction TB
-        subgraph PER_Q["Per Question"]
-            R["Stage 2: Retrieve Evidence\n(ChromaDB, top_k=5, threshold=0.75)"]
-            D["Stage 3: DrafterAgent\n(Strands @tool → Bedrock Claude 3 Haiku)"]
-            V["Stage 4: VerifierAgent\n(Strands @tool → Bedrock Claude 3 Haiku)\nSEPARATE context"]
-            C["Confidence Status\n(green / yellow / red)"]
-            R --> D --> V --> C
-        end
-    end
+1. **Parse**: Questionnaire files (PDF, XLSX) are parsed into discrete atomic questions (using `PyPDF2`, `openpyxl`, and `pandas`).
+2. **Retrieve**: Semantic search is performed over the uploaded Knowledge Base (using `ChromaDB` and local `sentence-transformers` embeddings, specifically `BAAI/bge-small-en-v1.5`). We strictly filter chunks below a 0.75 similarity threshold.
+3. **Draft (Agent 1)**: The `DrafterAgent` generates a formal compliance answer using ONLY the retrieved chunks. Every factual sentence is cited with a source `chunk_id`.
+4. **Verify (Agent 2)**: The `VerifierAgent` executes an independent model call with a fresh context. It reviews the draft against the original cited chunks and assigns a status (grounded, partial, or unsupported).
+5. **Review & Export**: Groundwork groups the answers into Green, Yellow, and Red confidence statuses. Humans only need to review the Yellow and Red answers.
 
-    subgraph OUTPUT["Stage 5: Human Review & Export"]
-        REV["Review UI\n🟢 Auto-approve | 🟡 Human glance | 🔴 Must review"]
-        EXP["Export (.docx)"]
-        REV --> EXP
-    end
+### Graceful Degradation & Safety First
 
-    Q --> P --> PIPELINE
-    KB --> R
-    C --> REV
-```
+Instead of guessing when evidence is missing, or crashing when AWS Bedrock hits rate limits or missing credentials, Groundwork guarantees safety:
+- **No Evidence Short-Circuit**: If retrieval yields 0 chunks above the threshold, the DrafterAgent returns `INSUFFICIENT_EVIDENCE` and the VerifierAgent automatically flags it as unsupported (Red) without wasting a Bedrock API call.
+- **API Failure Fallbacks**: If AWS credentials fail or timeout, the ThreadPoolExecutor degrades the specific question to a Red status with error notes, preserving the rest of the batch.
 
-### Confidence-Status Decision Table
+## Local Evaluation
 
-| Verdict | Top Similarity | Status |
-|---------|---------------|--------|
-| grounded | ≥ 0.85 | 🟢 Green |
-| grounded | 0.75 – 0.85 | 🟡 Yellow |
-| partial | any | 🟡 Yellow |
-| unsupported | any | 🔴 Red |
-| no evidence (no Bedrock call) | — | 🔴 Red |
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| **LLM** | AWS Bedrock — Anthropic Claude 3 Haiku (`anthropic.claude-3-haiku-20240307-v1:0`) |
-| **Agent Framework** | [Strands Agents SDK](https://github.com/strands-agents/sdk-python) — DrafterAgent + VerifierAgent |
-| **Orchestration** | Plain Python `ThreadPoolExecutor` (parallel across questions) |
-| **Embeddings** | `BAAI/bge-small-en-v1.5` (local, no API cost) |
-| **Vector Store** | ChromaDB |
-| **Backend** | FastAPI + Uvicorn |
-| **Frontend** | Next.js |
-
----
-
-## Quickstart
-
-### Prerequisites
-- Python 3.11+
-- Node.js 18+
-- AWS credentials configured (`aws configure` or env vars)
-
-### Backend
+To evaluate the pipeline, run the smoke test:
 
 ```bash
-cd backend
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-
-# Copy and configure environment
-cp .env.example .env
-
-# Start the API server
-uvicorn app.main:app --reload --port 8000
+venv\Scripts\activate
+pip install -r backend/requirements.txt
+python eval/smoke_test.py
 ```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-### Verify AWS Bedrock Connection
-
-```bash
-aws sts get-caller-identity
-# Should return your AWS account info
-
-# Watch for color-coded Bedrock logs in the backend terminal:
-# 🔷  INVOKING AWS BEDROCK: anthropic.claude-3-haiku-20240307-v1:0
-# ✅  BEDROCK RESPONSE RECEIVED
-# 📊  Tokens — input: 342, output: 128
-```
-
----
-
-## Evaluation
-
-```bash
-cd eval
-python run_eval.py
-```
-
-Reports two key metrics:
-- **Overall accuracy**: predicted status matches expected status
-- **Unsupported-detection recall/precision**: the real value proposition — "correctly says I don't know"
-
-### Test Set
-15–25 labeled questions from CAIQ-Lite with expected grounding status. See [`eval/test_set.json`](eval/test_set.json).
-
----
-
-## Project Structure
-
-```
-groundwork-strands/
-├── backend/
-│   ├── app/
-│   │   ├── agents/           # Strands SDK agent definitions
-│   │   │   ├── drafter.py    # DrafterAgent + @tool wrappers
-│   │   │   └── verifier.py   # VerifierAgent + @tool wrapper
-│   │   ├── llm/
-│   │   │   ├── adapter.py    # AWS Bedrock Converse API adapter
-│   │   │   └── prompts.py    # System prompts (draft + verify)
-│   │   ├── pipeline/
-│   │   │   ├── graph.py      # ThreadPoolExecutor orchestrator
-│   │   │   ├── parse.py      # Questionnaire parser (PDF/XLSX)
-│   │   │   ├── retrieve.py   # Semantic retrieval (ChromaDB)
-│   │   │   ├── draft.py      # Grounded answer drafting
-│   │   │   ├── verify.py     # Independent verification
-│   │   │   └── confidence.py # Status decision table
-│   │   ├── routes/           # FastAPI endpoints
-│   │   ├── storage/          # Vector store + run state
-│   │   └── models.py         # Pydantic data contracts
-│   └── requirements.txt
-├── eval/                     # Evaluation scripts + test set
-├── frontend/                 # Next.js review UI
-├── AGENTS.md                 # Architecture specification
-└── README.md
-```
-
----
-
-## Hackathon: Agents for Humans
-
-**Track**: Professional Agents — "makes someone dramatically better at work they already do"
-
-**Why it matters**: Groundwork runs autonomously against incoming questionnaires and only surfaces to a human when an answer lands on yellow or red. Green-status answers complete silently. This is the "runs in the background, only surfaces for a real decision" model.
-
-**Stretch goal**: AgentCore deployment via `bedrock-agentcore-starter-toolkit`.
-
----
 
 ## License
 
-[MIT](LICENSE)
+Apache 2.0

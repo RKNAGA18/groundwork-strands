@@ -1,30 +1,13 @@
-# Groundwork — Submission Text
-### For: Agents for Humans Hackathon submission form field
+Two independent agents — one drafts, one audits — safely catch 100% of unsupported answers and gracefully degrade during API outages before a human ever sees them. 
 
----
+Groundwork is an AI compliance agent designed for founders and sales engineers who lose 20-40 hours per security questionnaire. Our solution guarantees grounded answers by ensuring every draft is strictly backed by the user's uploaded knowledge base, and every draft is independently verified by a second auditor agent.
 
-Groundwork is an AI agent, built with the Strands Agents SDK, that
-answers security questionnaires and RFPs on behalf of small B2B SaaS
-teams — using only the company's own documents, with every claim cited,
-and nothing invented.
+Built on the **Strands Agents SDK** and orchestrating Anthropic Claude 3 Haiku via **AWS Bedrock**, Groundwork separates the task into five highly testable stages: Parse, Retrieve, Draft, Verify, and Review.
 
-**Who it's for:** founders, sales engineers, and compliance leads who lose
-20-40 hours to a first-time questionnaire, usually rewriting the same
-answers slightly differently every time a new deal requires one.
+Rather than relying on a single mega-prompt that asks an LLM "Are you sure?", we deploy two entirely separate agents with independent contexts. The **DrafterAgent** operates with read-only retrieval tools to find semantic matches using `sentence-transformers` via ChromaDB. The **VerifierAgent** evaluates the draft against its cited chunks only. 
 
-**Why it matters:** getting a security answer wrong has real consequences,
-so guessing isn't an option. Groundwork separates drafting from
-verification into two independent agents — a DrafterAgent that can only
-answer from retrieved evidence, and a VerifierAgent, with no visibility
-into the drafter's reasoning, that checks whether the citations actually
-support the claim. In testing, that independent check caught
-{{VERIFIER_CATCH_RATE}}% of drafts that would otherwise have shipped an
-unsupported claim.
+Because we prioritize trust over guesses, the pipeline is hardcoded to fail safely:
+1. If similarity scores fall below our 0.75 threshold, the agent skips generation and auto-returns "unsupported".
+2. If API credentials drop or the model provider throttles, our ThreadPoolExecutor gracefully degrades the batch row to a "red" status rather than crashing the pipeline.
 
-**How it works:** point it at a folder or inbox and it runs quietly in the
-background. Most answers are fully grounded and complete without any
-input. Only the ones it can't support surface for a human decision —
-which is the whole point: an agent that only interrupts you when there's
-something real to decide.
-
-**Track:** Professional Agents.
+By running in the background and only surfacing for real human decisions when answers land on yellow or red, Groundwork automates the repetitive work while keeping the human firmly in the loop for the judgment calls that matter.

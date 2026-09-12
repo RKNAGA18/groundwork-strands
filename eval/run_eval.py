@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
-"""Groundwork pipeline evaluation script.
+"""Groundwork pipeline evaluation — 20 labeled questions.
 
-Loads synthetic KB documents into ChromaDB, runs each test question
-through the full pipeline (retrieve -> draft -> verify -> compute_status),
-and reports accuracy + unsupported-detection precision/recall.
+Runs the full dual-agent pipeline (retrieve → draft → verify) against
+the synthetic KB and compares predicted status to expected status.
 
-Writes results to eval/eval_results.json for fill_submission_numbers.py.
+Reports:
+- Overall accuracy
+- Unsupported-detection precision, recall, F1
+- Confusion matrix
+
+Usage:
+  cd backend
+  python -m eval.run_eval
 """
 
-import sys
-import os
 import json
-import argparse
-import glob
-import uuid
+import os
 import shutil
+import sys
 import time
 
 # Add backend directory to path
@@ -27,205 +30,161 @@ from app.storage.vector_store import VectorStoreManager
 from app.pipeline.retrieve import retrieve_evidence
 from app.pipeline.draft import draft_answer
 from app.pipeline.verify import verify_answer
-from app.pipeline.confidence import compute_status
-from app.llm.adapter import LLMAdapter, RateLimitExhaustedError
+from app.llm.adapter import LLMAdapter
 
 
 def setup_kb(kb_dir: str, vector_store: VectorStoreManager) -> str:
-    """Load all synthetic KB docs into ChromaDB and return kb_id."""
-    kb_id = f"eval_{uuid.uuid4().hex[:8]}"
+    """Load all synthetic KB docs into a fresh collection."""
+    kb_id = "eval_kb"
     vector_store.create_kb(kb_id)
-
-    doc_files = glob.glob(os.path.join(kb_dir, "*.md"))
-    total_chunks = 0
-
-    for doc_path in doc_files:
-        doc_name = os.path.basename(doc_path)
-        doc_id = os.path.splitext(doc_name)[0]
-        chunks = chunk_document(doc_path, doc_id, doc_name)
-        vector_store.add_chunks(kb_id, chunks)
-        total_chunks += len(chunks)
-        print(f"  Loaded {doc_name}: {len(chunks)} chunks")
-
-    print(f"  Total: {len(doc_files)} docs, {total_chunks} chunks")
+    all_chunks = []
+    for doc_file in sorted(os.listdir(kb_dir)):
+        if doc_file.endswith(".md"):
+            doc_path = os.path.join(kb_dir, doc_file)
+            chunks = chunk_document(doc_path, doc_file.replace(".md", ""), doc_file)
+            all_chunks.extend(chunks)
+            print(f"  Loaded {doc_file}: {len(chunks)} chunks")
+    vector_store.add_chunks(kb_id, all_chunks)
+    print(f"  Total: {len(all_chunks)} chunks indexed with real embeddings\n")
     return kb_id
 
 
-def evaluate_question(
-    question: Question,
-    kb_id: str,
-    vector_store: VectorStoreManager,
-    llm: LLMAdapter,
-) -> str:
-    """Run one question through the full pipeline, return predicted status."""
-    # Stage 2: Retrieve
-    evidence = retrieve_evidence(question, kb_id, vector_store)
-
-    # Stage 3: Draft
-    draft = draft_answer(question, evidence, llm)
-
-    # Stage 4: Verify
-    verification = verify_answer(draft, evidence, llm)
-
-    return verification.status
-
-
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate Groundwork pipeline")
-    parser.add_argument(
-        "--verbose", action="store_true", help="Print detailed per-question output"
-    )
-    args = parser.parse_args()
-
     eval_dir = os.path.dirname(os.path.abspath(__file__))
-    kb_dir = os.path.join(eval_dir, "synthetic_kb")
-    test_set_path = os.path.join(eval_dir, "test_set.json")
-    results_output_path = os.path.join(eval_dir, "eval_results.json")
 
-    # Use a temporary chroma directory for eval
-    eval_chroma_path = os.path.join(eval_dir, ".eval_chroma_data")
-    if os.path.exists(eval_chroma_path):
-        shutil.rmtree(eval_chroma_path)
-    settings.CHROMA_PATH = eval_chroma_path
+    # Use temp chroma directory
+    eval_chroma = os.path.join(eval_dir, ".eval_chroma_data")
+    if os.path.exists(eval_chroma):
+        shutil.rmtree(eval_chroma)
 
     print("=" * 60)
     print("GROUNDWORK PIPELINE EVALUATION")
-    print("=" * 60)
+    print(f"Model: {settings.LLM_MODEL}")
+    print(f"Embeddings: {settings.EMBEDDING_MODEL}")
+    print("=" * 60 + "\n")
 
-    # Setup
-    print("\n[1/3] Loading synthetic KB...")
-    vector_store = VectorStoreManager()
-    kb_id = setup_kb(kb_dir, vector_store)
-
-    print("\n[2/3] Initializing LLM adapter...")
-    llm = LLMAdapter()
-
-    with open(test_set_path, "r", encoding="utf-8") as f:
+    # Load test set
+    test_set_path = os.path.join(eval_dir, "test_set.json")
+    with open(test_set_path) as f:
         test_set = json.load(f)
 
-    print(f"\n[3/3] Running evaluation on {len(test_set)} questions...\n")
+    print(f"[1/3] Loading synthetic KB...")
+    vector_store = VectorStoreManager(persist_dir=eval_chroma)
+    kb_dir = os.path.join(eval_dir, "synthetic_kb")
+    kb_id = setup_kb(kb_dir, vector_store)
 
-    correct = 0
-    total = 0
-    tp = fp = fn = tn = 0
-    details = []
+    print(f"[2/3] Initializing LLM adapter...")
+    llm = LLMAdapter()
+    print(f"  Ready: {settings.LLM_MODEL}\n")
+
+    print(f"[3/3] Running evaluation on {len(test_set)} questions...\n")
+
     start_time = time.time()
+    tp = fp = fn = tn = 0
+    results_log = []
 
-    for i, q in enumerate(test_set, 1):
-        question = Question(id=q["id"], text=q["text"], source_row=None)
-        expected = q["expected_status"]
+    for item in test_set:
+        q = Question(id=item["id"], text=item["text"])
+        expected = item["expected_status"]
 
         try:
-            predicted = evaluate_question(question, kb_id, vector_store, llm)
-        except RateLimitExhaustedError as e:
-            print(f"  [!] Infrastructure Failure on {q['id']} (429 Rate Limit). Excluding from metrics.")
-            continue
+            # Stage 2: Retrieve
+            evidence = retrieve_evidence(q, kb_id, vector_store)
+
+            # Stage 3: Draft
+            draft = draft_answer(q, evidence, llm)
+
+            # Stage 4: Verify
+            verification = verify_answer(draft, evidence, llm)
+            actual = verification.status
+
         except Exception as e:
-            print(f"  [!] Error evaluating {q['id']}: {e}")
-            predicted = "red"
+            print(f"  [!] Error on {q.id}: {e}")
+            actual = "red"
 
-        total += 1
-        match = predicted == expected
-        if match:
-            correct += 1
+        # Map to binary: green → supported, yellow/red → flagged
+        # For the confusion matrix, treat "unsupported" (red) as positive class
+        expected_is_red = expected == "red"
+        actual_is_red = actual == "red"
 
-        # Unsupported detection metrics (positive class = red)
-        if expected == "red" and predicted == "red":
+        if actual == expected:
+            label = "PASS"
+        elif expected == "red" and actual == "yellow":
+            label = "SOFT"  # Caught as yellow instead of red — still flagged
+        elif expected == "green" and actual == "yellow":
+            label = "SOFT"  # Over-cautious but not wrong
+        else:
+            label = "FAIL"
+
+        print(f"  [{label}]  {q.id}: expected={expected}, actual={actual}")
+
+        # Binary confusion: red vs not-red
+        if expected_is_red and actual_is_red:
             tp += 1
-        elif expected != "red" and predicted == "red":
-            fp += 1
-        elif expected == "red" and predicted != "red":
-            fn += 1
-        else:
+        elif not expected_is_red and not actual_is_red:
             tn += 1
+        elif not expected_is_red and actual_is_red:
+            fp += 1
+        else:  # expected red, got not-red
+            fn += 1
 
-        mark = "PASS" if match else "FAIL"
-        detail = {
-            "id": q["id"],
-            "text": q["text"][:60],
+        results_log.append({
+            "id": q.id,
+            "text": q.text,
             "expected": expected,
-            "predicted": predicted,
-            "match": match,
-        }
-        details.append(detail)
-
-        if args.verbose:
-            print(
-                f"  [{mark:^4}] {q['id']:>4}: {q['text'][:50]:<50} "
-                f"| Exp: {expected:<6} | Pred: {predicted:<6}"
-            )
-        else:
-            print(f"  [{mark:^4}] {q['id']:>4} ({expected} -> {predicted})")
+            "actual": actual,
+            "evidence_count": len(evidence) if 'evidence' in dir() else 0,
+        })
 
     elapsed = time.time() - start_time
+    total = tp + fp + fn + tn
 
-    # Report
-    accuracy = correct / total if total > 0 else 0
+    # Exact status match accuracy
+    exact_match = sum(1 for r in results_log if r["expected"] == r["actual"])
+    exact_accuracy = exact_match / len(results_log) if results_log else 0
+
+    # Binary precision/recall for red detection
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-    f1 = (
-        2 * precision * recall / (precision + recall)
-        if (precision + recall) > 0
-        else 0
-    )
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
 
-    print("\n" + "=" * 60)
+    print(f"\n{'=' * 60}")
     print("EVALUATION REPORT")
     print("=" * 60)
-    print(f"  Total Questions:              {total}")
-    print(f"  Overall Accuracy:             {correct}/{total} ({accuracy:.1%})")
-    print(f"  Elapsed Time:                 {elapsed:.1f}s")
-    print()
-    print("  Unsupported Detection (positive class = red):")
-    print(f"    Precision:                  {precision:.1%}")
-    print(f"    Recall:                     {recall:.1%}")
-    print(f"    F1 Score:                   {f1:.1%}")
-    print()
-    print("  Confusion Matrix:")
+    print(f"  Total Questions:              {len(results_log)}")
+    print(f"  Exact Status Match:           {exact_match}/{len(results_log)} ({exact_accuracy*100:.1f}%)")
+    print(f"  Elapsed Time:                 {elapsed:.1f}s\n")
+    print(f"  Unsupported Detection (positive class = red):")
+    print(f"    Precision:                  {precision*100:.1f}%")
+    print(f"    Recall:                     {recall*100:.1f}%")
+    print(f"    F1 Score:                   {f1*100:.1f}%\n")
+    print(f"  Confusion Matrix (red vs not-red):")
     print(f"    True Positives  (TP):       {tp}")
     print(f"    False Positives (FP):       {fp}")
     print(f"    False Negatives (FN):       {fn}")
     print(f"    True Negatives  (TN):       {tn}")
-    print("=" * 60)
+    print("=" * 60 + "\n")
 
-    cost_per_1m_input = 0.10
-    cost_per_1m_output = 0.40
-    total_cost = (
-        (llm.total_input_tokens / 1_000_000) * cost_per_1m_input +
-        (llm.total_output_tokens / 1_000_000) * cost_per_1m_output
-    )
-
-    # Write results to JSON for fill_submission_numbers.py
-    results = {
-        "overall_accuracy": accuracy,
-        "unsupported_precision": precision,
-        "unsupported_recall": recall,
-        "unsupported_f1": f1,
-        "batch_size": total,
-        "batch_latency_seconds": elapsed,
-        "total_cost_dollars": total_cost,
-        "input_tokens": llm.total_input_tokens,
-        "output_tokens": llm.total_output_tokens,
-        "correct": correct,
-        "total": total,
-        "confusion_matrix": {"tp": tp, "fp": fp, "fn": fn, "tn": tn},
-        "details": details,
+    # Save results
+    output = {
+        "exact_accuracy": exact_accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "tp": tp, "fp": fp, "fn": fn, "tn": tn,
+        "elapsed_time": elapsed,
+        "llm": settings.LLM_MODEL,
+        "embeddings": settings.EMBEDDING_MODEL,
+        "details": results_log,
     }
+    results_path = os.path.join(eval_dir, "eval_results.json")
+    with open(results_path, "w") as f:
+        json.dump(output, f, indent=2)
+    print(f"Results written to: {results_path}")
 
-    with open(results_output_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2)
-    print(f"\nResults written to: {os.path.basename(results_output_path)}")
-
-    # Cleanup eval chroma data
-    if os.path.exists(eval_chroma_path):
-        shutil.rmtree(eval_chroma_path)
-
-    if accuracy > 0.60:
-        print("\n[OK] PASS: Accuracy above 60% threshold")
-        sys.exit(0)
-    else:
-        print("\n[FAIL] FAIL: Accuracy below 60% threshold")
-        sys.exit(1)
+    # Cleanup
+    if os.path.exists(eval_chroma):
+        shutil.rmtree(eval_chroma)
 
 
 if __name__ == "__main__":

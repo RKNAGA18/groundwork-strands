@@ -1,105 +1,168 @@
+"""Vector store manager — ChromaDB + HuggingFace local embeddings.
+
+Uses sentence-transformers (BAAI/bge-small-en-v1.5) for real semantic
+embeddings, stored and queried via ChromaDB. No Bedrock embedding calls.
+
+The retrieve() method returns EvidenceChunk objects with real cosine
+similarity scores, filtered by the configured threshold.
+"""
+
+import logging
+import os
+import uuid
+
 import chromadb
-from llama_index.core import VectorStoreIndex, StorageContext
-from llama_index.core import Settings as LlamaSettings
-from llama_index.core.schema import TextNode
-from llama_index.vector_stores.chroma import ChromaVectorStore
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from chromadb.utils import embedding_functions
+
 from app.config import settings
 from app.models import EvidenceChunk
 
+logger = logging.getLogger(__name__)
+
+
 class VectorStoreManager:
-    """
-    Manages vector storage and retrieval using LlamaIndex and ChromaDB.
-    """
-    def __init__(self):
-        """
-        Initializes the ChromaDB client and HuggingFace embeddings.
-        """
-        self.chroma_client = chromadb.PersistentClient(path=settings.CHROMA_PATH)
-        embed_model = HuggingFaceEmbedding(model_name=settings.EMBEDDING_MODEL)
-        LlamaSettings.embed_model = embed_model
-        
-    def create_kb(self, kb_id: str):
-        """
-        Creates or retrieves a ChromaDB collection for the given knowledge base ID.
-        
-        Args:
-            kb_id (str): The unique identifier for the knowledge base.
-        """
-        self.chroma_client.get_or_create_collection(
-            name=kb_id,
-            metadata={"hnsw:space": "cosine"}
+    """Manages knowledge base collections in ChromaDB with real embeddings."""
+
+    def __init__(self, persist_dir: str = None):
+        self.persist_dir = persist_dir or settings.CHROMA_PATH
+        os.makedirs(self.persist_dir, exist_ok=True)
+
+        # Use sentence-transformers for real semantic embeddings
+        self._embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name=settings.EMBEDDING_MODEL,
         )
-        
-    def add_chunks(self, kb_id: str, chunks: list[dict]):
-        """
-        Adds text chunks to the specified knowledge base collection.
-        
-        Args:
-            kb_id (str): The knowledge base identifier.
-            chunks (list[dict]): A list of chunk dictionaries to add.
-        """
-        chroma_collection = self.chroma_client.get_or_create_collection(
-            name=kb_id,
-            metadata={"hnsw:space": "cosine"}
+
+        self.client = chromadb.PersistentClient(path=self.persist_dir)
+        logger.info(
+            "VectorStoreManager initialized (persist=%s, model=%s)",
+            self.persist_dir, settings.EMBEDDING_MODEL,
         )
-        vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-        storage_context = StorageContext.from_defaults(vector_store=vector_store)
-        
-        nodes = []
-        for chunk in chunks:
-            node = TextNode(
-                text=chunk["chunk_text"],
-                id_=chunk["chunk_id"],
-                metadata={
-                    "doc_id": chunk["doc_id"],
-                    "doc_name": chunk["doc_name"],
-                    "chunk_id": chunk["chunk_id"],
-                    "section_heading": chunk["section_heading"],
-                    "page_number": chunk["page_number"] if chunk["page_number"] is not None else -1
-                }
-            )
-            nodes.append(node)
-            
-        VectorStoreIndex(nodes, storage_context=storage_context)
-        
-    def retrieve(self, kb_id: str, query: str, top_k: int = 5, threshold: float = 0.75) -> list[EvidenceChunk]:
-        """
-        Retrieves relevant text chunks for a given query.
-        
+
+    def create_kb(self, kb_id: str) -> None:
+        """Create (or get) a knowledge-base collection."""
+        self.client.get_or_create_collection(
+            name=kb_id,
+            embedding_function=self._embed_fn,
+            metadata={"hnsw:space": "cosine"},
+        )
+        logger.info("KB collection '%s' ready", kb_id)
+
+    def add_chunks(self, kb_id: str, chunks: list) -> None:
+        """Add document chunks to a knowledge-base collection.
+
         Args:
-            kb_id (str): The knowledge base identifier.
-            query (str): The search query.
-            top_k (int, optional): The number of top results to return. Defaults to 5.
-            threshold (float, optional): The similarity score threshold. Defaults to 0.75.
-            
+            kb_id: The knowledge base collection name.
+            chunks: List of objects with .text, .chunk_id, .doc_id, .doc_name
+        """
+        if not chunks:
+            return
+
+        collection = self.client.get_or_create_collection(
+            name=kb_id,
+            embedding_function=self._embed_fn,
+            metadata={"hnsw:space": "cosine"},
+        )
+
+        texts = []
+        for c in chunks:
+            text = (getattr(c, "chunk_text", None) or getattr(c, "text", None)
+                    or (c.get("chunk_text") if isinstance(c, dict) else None)
+                    or (c.get("text") if isinstance(c, dict) else None))
+            if not text:
+                raise ValueError(f"Could not extract text from chunk: {c}")
+            texts.append(text)
+
+        ids = [getattr(c, "chunk_id", str(uuid.uuid4())) for c in chunks]
+        metadatas = [
+            {
+                "chunk_id": getattr(c, "chunk_id", ids[i]),
+                "doc_id": getattr(c, "doc_id", "unknown"),
+                "doc_name": getattr(c, "doc_name", "unknown.md"),
+            }
+            for i, c in enumerate(chunks)
+        ]
+
+        # ChromaDB will compute embeddings via the collection's embed fn
+        collection.add(documents=texts, metadatas=metadatas, ids=ids)
+        logger.info("Added %d chunks to KB '%s'", len(chunks), kb_id)
+
+    def retrieve(
+        self,
+        kb_id: str,
+        query: str,
+        top_k: int = 5,
+        threshold: float = None,
+    ) -> list[EvidenceChunk]:
+        """Retrieve evidence chunks via semantic similarity.
+
+        Uses ChromaDB's built-in query (which calls the sentence-transformer
+        embedding function on the query, then does cosine similarity search).
+
+        Args:
+            kb_id: The knowledge base collection name.
+            query: The question text to search for.
+            top_k: Maximum number of results.
+            threshold: Minimum cosine similarity. Defaults to settings value.
+
         Returns:
-            list[EvidenceChunk]: A list of retrieved evidence chunks.
+            List of EvidenceChunk objects above the threshold, sorted by
+            similarity descending.
         """
-        try:
-            chroma_collection = self.chroma_client.get_collection(name=kb_id)
-        except Exception:
+        if threshold is None:
+            threshold = settings.SIMILARITY_THRESHOLD
+
+        collection = self.client.get_or_create_collection(
+            name=kb_id,
+            embedding_function=self._embed_fn,
+            metadata={"hnsw:space": "cosine"},
+        )
+
+        # Check if collection has any documents
+        count = collection.count()
+        if count == 0:
+            logger.warning("KB '%s' is empty, returning no evidence", kb_id)
             return []
-            
-        vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-        index = VectorStoreIndex.from_vector_store(vector_store)
-        
-        retriever = index.as_retriever(similarity_top_k=top_k)
-        nodes_with_scores = retriever.retrieve(query)
-        
-        results = []
-        for node in nodes_with_scores:
-            if node.score is not None and node.score >= threshold:
-                metadata = node.node.metadata
-                chunk = EvidenceChunk(
-                    doc_id=metadata.get("doc_id", ""),
-                    doc_name=metadata.get("doc_name", ""),
-                    chunk_id=metadata.get("chunk_id", ""),
-                    chunk_text=node.node.text,
-                    similarity=float(node.score)
+
+        results = collection.query(
+            query_texts=[query],
+            n_results=min(top_k, count),
+            include=["documents", "metadatas", "distances"],
+        )
+
+        # ChromaDB cosine distance = 1 - cosine_similarity
+        # So similarity = 1 - distance
+        documents = results.get("documents", [[]])[0]
+        metadatas = results.get("metadatas", [[]])[0]
+        distances = results.get("distances", [[]])[0]
+
+        chunks = []
+        for doc, meta, dist in zip(documents, metadatas, distances):
+            similarity = 1.0 - dist  # Convert distance to similarity
+            if similarity < threshold:
+                continue
+
+            chunks.append(
+                EvidenceChunk(
+                    doc_id=meta.get("doc_id", "unknown"),
+                    doc_name=meta.get("doc_name", "unknown.md"),
+                    chunk_id=meta.get("chunk_id", str(uuid.uuid4())),
+                    chunk_text=doc,
+                    similarity=round(similarity, 4),
                 )
-                results.append(chunk)
-                
+            )
+
         # Sort by similarity descending
-        results.sort(key=lambda x: x.similarity, reverse=True)
-        return results
+        chunks.sort(key=lambda c: c.similarity, reverse=True)
+
+        if chunks:
+            logger.info(
+                "KB '%s' query: %d chunks above threshold %.2f (top=%.4f)",
+                kb_id, len(chunks), threshold, chunks[0].similarity,
+            )
+        else:
+            logger.info(
+                "KB '%s' query: 0 chunks above threshold %.2f",
+                kb_id, threshold,
+            )
+
+        return chunks

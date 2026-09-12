@@ -13,15 +13,24 @@ This saves AWS costs and mathematically prevents zero-context hallucinations.
 import logging
 from typing import Any
 
-from strands import Agent, tool
-from strands.models.bedrock import BedrockModel
-
 from app.config import settings
 from app.models import Draft, EvidenceChunk, Verification
 from app.pipeline.verify import verify_answer as _verify_impl
 from app.llm.adapter import LLMAdapter
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Strands SDK import — graceful if not installed
+# ---------------------------------------------------------------------------
+try:
+    from strands import Agent, tool
+    from strands.models.bedrock import BedrockModel
+    _STRANDS_AVAILABLE = True
+except ImportError:
+    _STRANDS_AVAILABLE = False
+    def tool(fn):
+        return fn
 
 # ---------------------------------------------------------------------------
 # Module-level singleton (set by orchestrator before agent invocation)
@@ -41,32 +50,58 @@ def configure(llm: LLMAdapter) -> None:
 
 
 @tool
-def check_claim_against_sources(draft: dict, evidence: list[dict]) -> dict:
-    """Call the LLM with the exact Verify system prompt from AGENTS.md.
-    Returns a Verification object. If evidence is empty, skip the model
-    call and return unsupported directly, per AGENTS.md."""
-    draft_obj = Draft(**draft)
-    evidence_objs = [EvidenceChunk(**e) for e in evidence]
-
-    # The empty-evidence short-circuit is enforced inside _verify_impl,
-    # but we also guard here for clarity and to guarantee no Bedrock call
-    # is made when there is nothing to verify against.
-    if not evidence_objs or not draft_obj.cited_chunk_ids:
-        logger.info(
-            "VerifierAgent: empty evidence for question '%s' — "
-            "auto-unsupported, NO Bedrock call made.",
-            draft_obj.question_id,
-        )
-        return Verification(
-            question_id=draft_obj.question_id,
-            verdict="unsupported",
-            status="red",
-            notes="No evidence was cited. Verdict is unsupported by rule, "
-                  "not by model judgment. Bedrock call skipped.",
-        ).model_dump()
-
-    verification = _verify_impl(draft_obj, evidence_objs, _llm)
-    return verification.model_dump()
+def check_claim_against_sources(draft_text: str, evidence: list[dict]) -> dict:
+    """
+    Independently audits a drafted answer against its cited evidence.
+    
+    This is the core of our "two independent agents" pitch. This agent didn't
+    write the draft, so it evaluates the claims purely on whether the provided
+    evidence supports them. No hallucinations allowed!
+    """
+    from app.llm.prompts import VERIFY_SYSTEM_PROMPT
+    import json
+    
+    # Short-circuit: If there's no evidence, it's immediately unsupported by rule.
+    # No need to pay an LLM to tell us that zero evidence equals zero support!
+    if not evidence:
+        logger.info("Verifier: No evidence available. Automatically flagging as unsupported.")
+        return {"verdict": "unsupported", "status": "red", "notes": "No evidence available."}
+        
+    if _llm is None:
+        raise ValueError("LLM adapter is not configured. Please check your credentials.")
+        
+    # Prepare the context for the auditor
+    evidence_str = "\n\n".join(
+        f"[{e.get('chunk_id')}]: {e.get('chunk_text', e.get('text', ''))}" 
+        for e in evidence
+    )
+        
+    # We use a temperature of 0.0 here because we want deterministic, highly analytical judgments.
+    response = _llm.generate(
+        system_prompt=VERIFY_SYSTEM_PROMPT,
+        user_message=f"Draft: {draft_text}\n\nCited evidence:\n{evidence_str}",
+        temperature=0.0,
+    )
+    
+    # Parse the LLM's JSON judgment, handling potential markdown code blocks
+    try:
+        if "```json" in response:
+            json_str = response.split("```json")[1].split("```")[0].strip()
+        else:
+            json_str = response.strip()
+            
+        result = json.loads(json_str)
+        
+        # Determine the traffic-light status based on the verdict if the LLM didn't provide one
+        if "status" not in result:
+            result["status"] = "red" if result.get("verdict") == "unsupported" else "yellow" 
+            
+        return result
+        
+    except Exception as e:
+        logger.error(f"Verifier failed to parse JSON from LLM: {response}")
+        # When in doubt, flag it Red for human review. Safety first!
+        return {"verdict": "unsupported", "status": "red", "notes": "Error parsing JSON from LLM"}
 
 
 # ---------------------------------------------------------------------------
@@ -74,12 +109,18 @@ def check_claim_against_sources(draft: dict, evidence: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def build_verifier_agent() -> Agent:
+def build_verifier_agent():
     """Build and return a configured VerifierAgent.
 
     Called by the orchestrator at pipeline start. Uses Bedrock as the
     model provider via Strands' BedrockModel.
+
+    Returns None if strands-agents is not installed.
     """
+    if not _STRANDS_AVAILABLE:
+        logger.warning("strands-agents not installed — VerifierAgent unavailable")
+        return None
+
     model = BedrockModel(
         model_id=settings.LLM_MODEL,
         region_name=settings.AWS_REGION,

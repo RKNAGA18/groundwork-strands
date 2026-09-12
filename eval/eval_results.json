@@ -1,0 +1,161 @@
+{
+  "overall_accuracy": 0.5,
+  "unsupported_precision": 0.5,
+  "unsupported_recall": 1.0,
+  "unsupported_f1": 0.6666666666666666,
+  "batch_size": 20,
+  "batch_latency_seconds": 6.805104494094849,
+  "total_cost_dollars": 0.0,
+  "input_tokens": 0,
+  "output_tokens": 0,
+  "correct": 10,
+  "total": 20,
+  "confusion_matrix": {
+    "tp": 10,
+    "fp": 10,
+    "fn": 0,
+    "tn": 0
+  },
+  "details": [
+    {
+      "id": "q1",
+      "text": "Does the organization classify data based on sensitivity lev",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q2",
+      "text": "What are the data retention requirements for financial data?",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q3",
+      "text": "Is multi-factor authentication required for all users?",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q4",
+      "text": "How quickly must access be revoked when an employee is termi",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q5",
+      "text": "What is the organization's Recovery Time Objective (RTO)?",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q6",
+      "text": "Is data encrypted at rest using AES-256?",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q7",
+      "text": "Are background checks performed on all employees before hire",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q8",
+      "text": "Does the organization enforce a clean desk policy?",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q9",
+      "text": "Are code reviews required before deploying to production?",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q10",
+      "text": "Are audit logs maintained for all administrative actions?",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q11",
+      "text": "Does the organization perform vulnerability scanning on all ",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q12",
+      "text": "Are there policies governing the portability of data between",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q13",
+      "text": "Are penetration tests conducted annually on external facing ",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q14",
+      "text": "Does the company mandate data obfuscation or masking in non-",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q15",
+      "text": "Does the organization maintain physical security controls at",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q16",
+      "text": "Are endpoint devices managed with a unified endpoint managem",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q17",
+      "text": "Does the organization use automated source code analysis (SA",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q18",
+      "text": "Is there a formal supply chain risk management program to ev",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q19",
+      "text": "Does the company consume threat intelligence feeds from exte",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q20",
+      "text": "Are physical access logs to the datacenter reviewed quarterl",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    }
+  ]
+}

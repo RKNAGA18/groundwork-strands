@@ -1,0 +1,376 @@
+{
+  "naive_accuracy": 0.5,
+  "rag_no_verify_accuracy": 0.5,
+  "full_pipeline_accuracy": 0.5,
+  "verifier_catch_opportunities": 0,
+  "verifier_catches": 0,
+  "verifier_catch_rate": 0.0,
+  "batch_latency": 27.3534734249115,
+  "total_questions": 20,
+  "naive_details": [
+    {
+      "id": "q1",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q2",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q3",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q4",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q5",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q6",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q7",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q8",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q9",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q10",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q11",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q12",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q13",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q14",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q15",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q16",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q17",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q18",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q19",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q20",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    }
+  ],
+  "rag_no_verify_details": [
+    {
+      "id": "q1",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q2",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q3",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q4",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q5",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q6",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q7",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q8",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q9",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q10",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q11",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q12",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q13",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q14",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q15",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q16",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q17",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q18",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q19",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q20",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    }
+  ],
+  "full_pipeline_details": [
+    {
+      "id": "q1",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q2",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q3",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q4",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q5",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q6",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q7",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q8",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q9",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q10",
+      "expected": "green",
+      "predicted": "red",
+      "match": false
+    },
+    {
+      "id": "q11",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q12",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q13",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q14",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q15",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q16",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q17",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q18",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q19",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    },
+    {
+      "id": "q20",
+      "expected": "red",
+      "predicted": "red",
+      "match": true
+    }
+  ]
+}
