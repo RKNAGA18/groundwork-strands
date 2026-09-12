@@ -7,11 +7,11 @@ class EvidenceChunk:
     chunk_id: str
     doc_name: str
     text: str
-    similarity: float = 0.0
+    match_score: float = 0.0
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self):
-        return {"chunk_id": self.chunk_id, "doc_name": self.doc_name, "text": self.text, "similarity": round(self.similarity, 4)}
+        return {"chunk_id": self.chunk_id, "doc_name": self.doc_name, "text": self.text, "match_score": round(self.match_score, 4)}
 
 class VectorStoreManager:
     def __init__(self): self.kbs = {}
@@ -50,6 +50,6 @@ class VectorStoreManager:
                 
         scored.sort(key=lambda x: x[0], reverse=True)
         return [
-            EvidenceChunk(chunk_id=it["chunk_id"], doc_name=it["doc_name"], text=it["text"], similarity=s) 
+            EvidenceChunk(chunk_id=it["chunk_id"], doc_name=it["doc_name"], text=it["text"], match_score=s) 
             for s, it in scored[:top_k]
         ]

@@ -52,6 +52,17 @@ _BOLD = "\033[1m"
 # ---------------------------------------------------------------------------
 
 
+def force_red_if_no_real_evidence(draft_text: str, top_score: float, threshold: float) -> bool:
+    no_evidence_phrases = ["not addressed", "no mention", "not covered",
+                            "insufficient evidence", "does not address", "insufficient_evidence"]
+    draft_lower = draft_text.lower()
+    if any(p in draft_lower for p in no_evidence_phrases):
+        return True
+    if top_score < threshold:
+        return True
+    return False
+
+
 def _process_question(
     q_dict: dict,
     kb_id: str,
@@ -86,49 +97,72 @@ def _process_question(
             raise RuntimeError("Strands agents not available. Ensure strands-agents is installed.")
 
         # ==========================================
+        # PRE-STAGE: MANUAL RETRIEVAL (Fix 2 & top_score check)
+        # ==========================================
+        # We manually run retrieve_evidence here to get the top_score for our override check,
+        # and to log exactly what the drafter agent will see when it calls the same tool.
+        chunks = retrieve_evidence(question, kb_id, vector_store)
+        top_score = max((getattr(c, 'match_score', getattr(c, 'similarity', 0.0)) for c in chunks), default=0.0)
+        
+        if "smoke_2" in question.id or "Q2" in question.id or "2" in question.id:
+            logger.info("=== FIX 2: FULL EVIDENCE LIST FOR Q2 ===")
+            for c in chunks:
+                logger.info("Doc: %s | Text: %s...", c.doc_name, c.text[:150])
+            logger.info("=========================================")
+
+        # ==========================================
         # STAGE 1: DRAFTING
         # ==========================================
         logger.info("Question '%s': Invoking DrafterAgent", question.id)
         draft_result = drafter(
             f"Answer this question using retrieve_evidence and draft_answer. Knowledge base ID: {kb_id}. Question: {question.text}"
         )
-        logger.info("Question '%s': DrafterAgent completed", question.id)
+        draft_text = str(draft_result)
+        logger.info("Question '%s': DrafterAgent completed. Output snippet: %s...", question.id, draft_text[:50])
 
         # ==========================================
         # STAGE 2: VERIFICATION
         # ==========================================
-        # Notice we pass the Draft output directly to the Verifier. The Verifier
-        # has a totally separate context and system prompt—it acts as an auditor.
-        logger.info("Question '%s': Invoking VerifierAgent", question.id)
-        verification_result = verifier(
-            f"Audit this draft against its evidence: {draft_result}"
-        )
-        logger.info("Question '%s': VerifierAgent completed", question.id)
-        
-        # Extract the Red/Yellow/Green status from the auditor's result.
-        # Since it might be JSON embedded in text, we parse it safely.
-        status = "yellow"  # fallback status if we aren't sure
-        verdict_text = str(verification_result)
-        
-        try:
-            # Look for a JSON block in the verdict text
-            if "{" in verdict_text and "}" in verdict_text:
-                json_str = verdict_text[verdict_text.find("{"):verdict_text.rfind("}")+1]
-                v_data = json.loads(json_str)
-                status = v_data.get("status", "yellow")
-        except Exception:
-            pass # We'll just stick with the 'yellow' fallback for safety
+        status = "yellow"
+        notes = ""
+        verification_result = ""
+
+        # FIX 1: Force red deterministically if there's no real evidence, bypassing the verifier LLM
+        if force_red_if_no_real_evidence(draft_text, top_score, settings.SIMILARITY_THRESHOLD):
+            logger.warning("Question '%s': force_red_if_no_real_evidence TRIGGERED. Bypassing Verifier.", question.id)
+            status = "red"
+            notes = "Unsupported by rule (no/insufficient evidence). Verifier LLM bypassed."
+        else:
+            # Notice we pass the Draft output directly to the Verifier. The Verifier
+            # has a totally separate context and system prompt—it acts as an auditor.
+            logger.info("Question '%s': Invoking VerifierAgent", question.id)
+            verification_result = verifier(
+                f"Audit this draft against its evidence: {draft_result}"
+            )
+            logger.info("Question '%s': VerifierAgent completed", question.id)
+            
+            verdict_text = str(verification_result)
+            notes = verdict_text
+            
+            try:
+                # Look for a JSON block in the verdict text
+                if "{" in verdict_text and "}" in verdict_text:
+                    json_str = verdict_text[verdict_text.find("{"):verdict_text.rfind("}")+1]
+                    v_data = json.loads(json_str)
+                    status = v_data.get("status", "yellow")
+            except Exception:
+                pass # We'll just stick with the 'yellow' fallback for safety
 
         # Assemble the final answer for the user review dashboard
         reviewed = ReviewedAnswer(
             question_id=question.id,
             question_text=question.text,
-            final_text=str(draft_result),
+            final_text=draft_text,
             human_approved=False,
             status=status,
             cited_chunk_ids=[],
-            evidence=[],
-            notes=str(verification_result),
+            evidence=chunks,
+            notes=notes,
         )
 
     except Exception as exc:

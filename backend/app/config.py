@@ -24,7 +24,7 @@ class Settings(BaseSettings):
 
     # Pipeline parameters
     TOP_K: int = 5
-    SIMILARITY_THRESHOLD: float = 0.65
+    SIMILARITY_THRESHOLD: float = 0.1
     DRAFT_TEMPERATURE: float = 0.2
     VERIFY_TEMPERATURE: float = 0.0
 

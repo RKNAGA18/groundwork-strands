@@ -15,6 +15,8 @@ the vector store + retrieval only to test the non-LLM path.
 import sys
 import os
 import shutil
+import logging
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 # Add backend directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
@@ -54,7 +56,7 @@ def main():
     # Step 2: Index into ChromaDB with REAL embeddings
     print(f"\n[1] Indexing {len(all_chunks)} chunks into ChromaDB "
           f"(model: {settings.EMBEDDING_MODEL})...")
-    vs = VectorStoreManager(persist_dir=smoke_chroma)
+    vs = VectorStoreManager()
     kb_id = "smoke_test_kb"
     vs.create_kb(kb_id)
     vs.add_chunks(kb_id, all_chunks)

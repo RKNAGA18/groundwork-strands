@@ -32,7 +32,7 @@ class EvidenceChunk(BaseModel):
     doc_name: str
     chunk_id: str
     chunk_text: str
-    similarity: float
+    match_score: float
 
 
 class Draft(BaseModel):

@@ -37,17 +37,17 @@ def retrieve_evidence(
 
     try:
         # VectorStoreManager.retrieve() now returns List[EvidenceChunk]
-        # directly, with real cosine similarity scores and threshold filtering
+        # directly, with real match scores and threshold filtering
         chunks = vector_store_manager.retrieve(
             kb_id=kb_id,
             query=question.text,
             top_k=settings.TOP_K,
-            threshold=settings.SIMILARITY_THRESHOLD,
+            threshold=settings.SIMILARITY_THRESHOLD, # keeping settings var name to avoid config change
         )
 
-        top_score = max((c.similarity for c in chunks), default=0.0)
+        top_score = max((getattr(c, 'match_score', getattr(c, 'similarity', 0.0)) for c in chunks), default=0.0)
         logger.info(
-            "Retrieved %d chunks for question '%s'. Top score: %.4f",
+            "Retrieved %d chunks for question '%s'. Top match_score: %.4f",
             len(chunks),
             question.id,
             top_score,
