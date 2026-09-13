@@ -73,3 +73,8 @@ async def verify_single(req: VerifyQueryRequest):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+from app.routes import kb, questionnaire, runs
+app.include_router(kb.router)
+app.include_router(questionnaire.router)
+app.include_router(runs.router)
