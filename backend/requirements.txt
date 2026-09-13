@@ -17,3 +17,7 @@ gradio
 strands-agents[openai]
 openai
 requests
+PyPDF2
+python-multipart
+openpyxl
+pandas
