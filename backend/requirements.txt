@@ -12,3 +12,7 @@ openpyxl>=3.1.2
 pandas>=2.2.0
 chromadb>=0.4.24
 tiktoken>=0.6.0
+gradio
+strands-agents[openai]
+openai
+requests
