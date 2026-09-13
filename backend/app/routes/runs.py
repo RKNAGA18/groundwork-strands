@@ -138,7 +138,8 @@ async def export_run(run_id: str, request: Request):
             doc.add_paragraph(answer_text)
             doc.add_paragraph("")  # spacer
         
-        export_path = os.path.join(settings.UPLOAD_DIR, f"{run_id}_export.docx")
+        upload_dir = getattr(request.app.state, "upload_dir", settings.UPLOAD_DIR)
+        export_path = os.path.join(upload_dir, f"{run_id}_export.docx")
         doc.save(export_path)
         logger.info(f"Successfully exported run {run_id} to {export_path}")
         

@@ -33,7 +33,8 @@ async def upload_kb(request: Request, file: UploadFile = File(...), kb_id: Optio
     else:
         logger.info(f"Using provided kb_id: {kb_id}")
     
-    file_path = os.path.join(settings.UPLOAD_DIR, f"{kb_id}_{file.filename}")
+    upload_dir = getattr(request.app.state, "upload_dir", settings.UPLOAD_DIR)
+    file_path = os.path.join(upload_dir, f"{kb_id}_{file.filename}")
     try:
         content = await file.read()
         with open(file_path, "wb") as f:
