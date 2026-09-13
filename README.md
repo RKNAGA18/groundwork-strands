@@ -15,6 +15,7 @@ Groundwork runs autonomously in the background against an incoming questionnaire
 The core guarantee: **every answer is traceable to a source chunk in your own uploaded documents. If no evidence exists, the system says so instead of guessing.**
 
 ---
+![Groundwork Architecture Diagram](architecture_diagram.png)
 
 ## Architecture at a Glance
 
@@ -89,6 +90,13 @@ sequenceDiagram
         end
     end
 ```
+
+### Core Pipeline Flow
+1. **Ingestion & Normalization:** Processes raw markdown policies and complex questionnaire grids (`.xlsx`, `.pdf`) into discrete, atomic compliance claims.
+2. **Deterministic Retrieval:** Evaluates claims against local policy documents using a lightweight BM25 and vector similarity engine.
+3. **Grounded Drafting (`DrafterAgent`):** Synthesizes precise responses restricted strictly to retrieved context.
+4. **Independent Verification (`VerifierAgent`):** Operates in an isolated context window to audit the draft against raw evidence, cross-checking for contradictions, missing controls, and factual alignment.
+5. **Human-in-the-Loop Review:** Renders categorical color-coded verdicts (`GREEN` vs. `RED`) in an interactive dashboard for final auditor sign-off.
 
 ---
 
