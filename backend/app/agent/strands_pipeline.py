@@ -59,8 +59,8 @@ def run_pipeline(question: str) -> Dict[str, Any]:
         
         return {
             "status": status,
-            "top_source": evidence[0]["doc_name"] if evidence else "None",
-            "top_similarity": evidence[0]["similarity"] if evidence else 0.0,
+            "top_source": evidence[0].get("doc_name", "None") if evidence else "None",
+            "top_similarity": evidence[0].get("score", evidence[0].get("similarity", 0.0)) if evidence else 0.0,
             "reason": clean_reason
         }
     except Exception as e:
