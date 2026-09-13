@@ -23,7 +23,7 @@ groq_model = OpenAIModel(
         "api_key": os.environ.get("GROQ_API_KEY", ""),
         "base_url": "https://api.groq.com/openai/v1"
     },
-    model_id="llama-3.1-8b-instant",
+    model_id="openai/gpt-oss-20b",
     params={"temperature": 0.0, "max_tokens": 500}
 )
 
