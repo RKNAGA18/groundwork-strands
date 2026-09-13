@@ -43,12 +43,12 @@ def run_pipeline(question: str) -> Dict[str, Any]:
         
         # LIVE API INVOCATION 1: Drafter
         draft_prompt = f"Question: {question}\nEvidence: {evidence}"
-        draft_result = DrafterAgent.invoke(draft_prompt)
+        draft_result = DrafterAgent(draft_prompt)
         draft_text = str(draft_result)
         
         # LIVE API INVOCATION 2: Verifier
         verify_prompt = f"Question: {question}\nDraft: {draft_text}\nEvidence: {evidence}"
-        verify_result = VerifierAgent.invoke(verify_prompt)
+        verify_result = VerifierAgent(verify_prompt)
         verify_text = str(verify_result)
         
         is_supported = "STATUS: GREEN" in verify_text.upper()
